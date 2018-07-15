@@ -1,15 +1,13 @@
-# Solid base for practising RxJS
+# hw.js
 
-Use this playground to quickly scaffold a rxjs program and includes marble testing
+An experimental web domain hardware design language
 
 # Usage 
 ```bash
 $ npm start
 ```
 
-# TDD 
+# Testing 
 ```bash
 $ npm test
 ```
-
-Project will start on the specified port with watch mode, enjoy! 
