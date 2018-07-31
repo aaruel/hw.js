@@ -1,5 +1,4 @@
-import { Tokenizer } from "../src/compiler/main"
-
+import { Tokenizer, Parser } from "../src/compiler/main"
 
 const code = `;
 ; gatelib:
@@ -12,34 +11,38 @@ const code = `;
 
 component AndGate {
 
-	public {
-		a: input
-		b: input
-		out: output
-	}
+    public {
+        a: input
+        b: input
+        out: output
+    }
 
-	private {
-		_a: wire
-		_b: wire
-		_c: wire
-	}
+    private {
+        _a: wire
+        _b: wire
+        _c: wire
+    }
 
-	pipeline {
-		a => _a,
-		b => _b,
-		_a and _b => _c => out,
+    pipeline {
+        X,
+        _a and _b => _c => out,
+    }
+
+	logic X {
+		[a, b] => [_a, _b]
 	}
 
 }
 
-global {
-	
+pipeline {
+    
 }`
 
 describe("Compiler Tests", () => {
     it("Tokenizer returns array", () => {
         const t = new Tokenizer(code)
-        console.log(t.getTokens())
+		const p = new Parser(t.getTokens())
+		console.log(p.getTokens())
         expect(true).toBe(true)
     })
 })

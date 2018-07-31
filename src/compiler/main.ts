@@ -1,3 +1,5 @@
+import { identity } from "rxjs";
+
 interface Token {
     type: string
     value: string
@@ -33,7 +35,7 @@ export class Tokenizer {
     private isUseless = (char: string) => /[\n\r\s]/.test(char)
     private isText = (char: string) => /[a-zA-Z_]/.test(char)
     private isBraces = (char: string) => /[{}]/.test(char)
-    private isSpecial = (char: string) => /[=>:,]/.test(char)
+    private isSpecial = (char: string) => /[\[=>:,\]]/.test(char)
 
     public constructor(code: string) {
         this.code = code
@@ -124,16 +126,87 @@ export class Tokenizer {
     }
 }
 
-/**
- * ComponentDeclaration
- * -- Identifier
- * -- Body
- * PipelineDeclaration
- * -- Body
- * 
- */
+// AST Data Organization
 
-class Parser {
+// Base Interfaces
+
+interface Node {
+    type: string
+}
+
+interface Identifier extends Node {
+    identifier: string
+}
+
+interface Declaration extends Identifier {
+    body: Array<Node>
+}
+
+interface Variable extends Identifier {
+    datatype: string
+}
+
+interface Operator extends Node {
+    operator: string
+    left: Node | {}
+    right: Node | {}
+}
+
+// Base Classes
+
+class BaseDeclaration implements Declaration {
+    type = ""
+    identifier = ""
+    body = []
+
+    constructor(ident: string = "") {
+        this.identifier = ident
+    }
+
+    pushNode(o: Node): void {
+        this.body.push(o)
+    }
+}
+
+class BaseVariable implements Variable {
+    type = "Variable"
+    identifier = ""
+    datatype = ""
+
+    constructor(ident: string, datatype: string) {
+        this.identifier = ident
+        this.datatype = datatype
+    }
+}
+
+class BaseOperator implements Operator {
+    type = "Operator"
+    operator = ""
+    left = {}
+    right = {}
+
+    constructor(operator: string, left: Node, right: Node) {
+        this.operator = operator
+        this.left = left
+        this.right = right
+    }
+}
+
+// Syntax Declarations
+
+class ProgramDeclaration extends BaseDeclaration {type = "Program"}
+class ComponentDeclaration extends BaseDeclaration {type = "ComponentDeclaration"}
+class PipelineDeclaration extends BaseDeclaration {type = "PipelineDeclaration"}
+class PublicDeclaration extends BaseDeclaration {type = "PublicDeclaration"}
+class PrivateDeclaration extends BaseDeclaration {type = "PrivateDeclaration"}
+class LogicDeclaration extends BaseDeclaration {type = "LogicDeclaration"}
+
+export class Parser {
+    private i: number = 0
+    private tokens: Array<Token> = []
+    private ast: ProgramDeclaration = new ProgramDeclaration()
+    private next = () => this.tokens[++this.i]
+    private current = () => this.tokens[this.i]
     private charTable: Object = {
         // Blocks
         "{": 0,
@@ -159,5 +232,28 @@ class Parser {
         "input": 0,
         "output": 0,
         "wire": 0,
+    }
+    private operators: RegExp = /and|nand|or|nor|xor|xnor|=>/
+
+    constructor(tokens: Array<Token>) {
+        this.tokens = this.detectOperatorsXform(tokens)
+        while (this.current()) {
+            this.ast.body.push(this.parse())
+        }
+    }
+
+    public getTokens() {
+        return this.tokens
+    }
+
+    private parse(): Node {
+        
+    }
+
+    private detectOperatorsXform(tokens: Array<Token>): Array<Token> {
+        return tokens.map((token) => {
+            if (this.operators.test(token.value)) token.type = "operator"
+            return token
+        })
     }
 }
