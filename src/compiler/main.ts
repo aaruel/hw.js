@@ -135,6 +135,7 @@ interface Node {
 }
 
 interface Identifier extends Node {
+    // variable name
     identifier: string
 }
 
@@ -200,39 +201,220 @@ class PipelineDeclaration extends BaseDeclaration {type = "PipelineDeclaration"}
 class PublicDeclaration extends BaseDeclaration {type = "PublicDeclaration"}
 class PrivateDeclaration extends BaseDeclaration {type = "PrivateDeclaration"}
 class LogicDeclaration extends BaseDeclaration {type = "LogicDeclaration"}
+class ExpressionDeclaration extends BaseDeclaration {types = "ExpressionDeclaration"}
+
+/* 
+Parse tokenized string with decision tree
+
+
+ProgramDeclaration {
+    body: {
+        Variable {
+            body: {}
+        },
+        
+    }
+}
+
+*/
 
 export class Parser {
+    private charTable: Object = {
+        // Blocks
+        "{": 1,
+        "}": 1,
+        // Operators
+        "and": 1,
+        "nand": 1,
+        "or": 1,
+        "nor": 1,
+        "xor": 1,
+        "xnor": 1,
+        "=>": 1,
+        ":": 1,
+        ",": 1,
+        // Modules
+        "component": 1,
+        "global": 1,
+        // Modifiers
+        "public": 1,
+        "private": 1,
+        "pipeline": 1,
+        // Types
+        "input": 1,
+        "output": 1,
+        "wire": 1,
+    }
+
+    root: Object = {
+        // Text Value level
+        "component": () => this.parseNamedBlock(ComponentDeclaration),
+        "public": () => this.parseBlock(PublicDeclaration, this.parse.bind(this)),
+        "private": () => this.parseBlock(PrivateDeclaration, this.parse.bind(this)),
+        "pipeline": () => this.parseBlock(PipelineDeclaration, this.pipelineParser.bind(this)),
+        "logic": () => this.parseNamedBlock(LogicDeclaration)
+    }
+
+    rootNoRes: Object = {
+        ":": this.parseVariable
+    }
+
+    operatorPrecedence: Object = {
+        "and": 2,
+        "=>":  1,
+    }
+
+    private infixParser(group: Array<string>): Node {
+        const isOp = (op) => this.operatorPrecedence.hasOwnProperty(op)
+        const getPrec = (op) => this.operatorPrecedence[op]
+        const shunter = () : Node => {
+            let valstack = []
+            let opstack = []
+
+            const process = () => {
+                let val1 = valstack.shift()
+                let op = opstack.shift()
+                let val2 = valstack.shift()
+                valstack.push(new BaseOperator(op, val1, val2))
+            }
+
+            const evaluate = (token: string) => {
+                if (!isOp(token)) {
+                    valstack.push(token)
+                }
+                // if opstack is empty
+                else if (!opstack.length) {
+                    opstack.push(token)
+                }
+                // if opstack is occupied
+                else if (!opstack.length && getPrec(token) > getPrec(opstack[0])) {
+                    opstack.push(token)
+                }
+                else {
+                    process()
+                    // still have to deal with the token
+                    evaluate(token)
+                }
+            }
+
+            for (let token of group) {
+                evaluate(token)
+            }
+            
+            // continue to process until opstack is empty
+            while (opstack.length) {
+                process()
+            }
+
+            return valstack.shift()
+        }
+
+        return shunter()
+    }
+
+    private pipelineParser(): Node {
+        // group each entry
+        let group = []
+        while (
+            this.current().value != "}"
+            && this.current().value != ","
+        ) {
+            group.push(this.current().value)
+            this.next()
+        }
+
+        // pointing at } or ,
+
+        this.next()
+
+        // pointing at next value
+
+        // if expression identifier
+        if (group.length == 1) {
+            return new ExpressionDeclaration(group.shift())
+        }
+        // binary infix expession
+        else if (group.length > 1) {
+            const exp = new ExpressionDeclaration()
+            exp.pushNode(this.infixParser(group))
+            return exp
+        }
+        else {
+            this.error()
+        }
+    }
+
+    private parseVariable(ident: string): BaseVariable {
+        const type = this.next().value
+
+        // pointing at type
+
+        this.next()
+
+        // pointing at next value
+
+        return new BaseVariable(ident, type)
+    }
+
+    private parseNamedBlock<T extends BaseDeclaration>(_type: { new(ident: string): T }) : T {
+        const blockName = this.next().value
+
+        // pointing at component name
+
+        const brace = this.next().value
+
+        // pointing at brace
+
+        this.next()
+
+        // pointing at next value
+
+        if (this.charTable.hasOwnProperty(blockName)) this.error()
+        if (brace != "{") this.error()
+        const component = new _type(blockName)
+
+        // recurse
+        while (this.current().value != "}") {
+            component.pushNode(this.parse())
+        }
+
+        // advance from brace
+        this.next()
+        
+        return component
+    }
+
+    private parseBlock<T extends BaseDeclaration>(_type: { new(): T }, parser: Function) : T {
+        const brace = this.next().value
+        
+        // pointing at brace
+
+        this.next()
+
+        // pointing at next value
+
+        if (brace != "{") this.error()
+        const decl = new _type()
+
+        // recurse
+        while (this.current().value != "}") {
+            decl.pushNode(parser())
+        }
+
+        // advance from brace
+        this.next()
+        
+        return decl
+    }
+
+    private error(name: string = "error") { throw Error(name) }
+
     private i: number = 0
     private tokens: Array<Token> = []
     private ast: ProgramDeclaration = new ProgramDeclaration()
     private next = () => this.tokens[++this.i]
     private current = () => this.tokens[this.i]
-    private charTable: Object = {
-        // Blocks
-        "{": 0,
-        "}": 0,
-        // Operators
-        "and": 0,
-        "nand": 0,
-        "or": 0,
-        "nor": 0,
-        "xor": 0,
-        "xnor": 0,
-        "=>": 0,
-        ":": 0,
-        ",": 0,
-        // Modules
-        "component": 0,
-        "global": 0,
-        // Modifiers
-        "public": 0,
-        "private": 0,
-        "pipeline": 0,
-        // Types
-        "input": 0,
-        "output": 0,
-        "wire": 0,
-    }
+    private isReservedKeyword = (value) => this.charTable.hasOwnProperty(value)
     private operators: RegExp = /and|nand|or|nor|xor|xnor|=>/
 
     constructor(tokens: Array<Token>) {
@@ -246,8 +428,23 @@ export class Parser {
         return this.tokens
     }
 
+    public getAST() {
+        return this.ast
+    }
+
     private parse(): Node {
-        
+        // should point to the beginning of an AST node
+        const current = this.current().value
+
+        // test if reserved keyword
+        if (this.isReservedKeyword(current)) {
+            return this.root[current].bind(this)()
+        }
+        // identifier
+        else {
+            const next = this.next().value
+            return this.rootNoRes[next].bind(this)(current)
+        }
     }
 
     private detectOperatorsXform(tokens: Array<Token>): Array<Token> {
