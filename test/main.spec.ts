@@ -1,6 +1,6 @@
 import { Tokenizer, Parser } from "../src/compiler/main"
 
-const zcode = `;
+const code = `;
 ; gatelib:
 ; ; and
 ; ; nand
@@ -36,36 +36,6 @@ component AndGate {
 
 pipeline {
     
-}`
-
-const code = `;
-; gatelib:
-; ; and
-; ; nand
-; ; or
-; ; nor
-; ; xor
-; ; xnor
-
-component AndGate {
-
-    public {
-        a: input
-        b: input
-        out: output
-    }
-
-    private {
-        _a: wire
-        _b: wire
-        _c: wire
-    }
-
-    pipeline {
-        connection,
-        _a and _b => _c => out,
-    }
-
 }`
 
 describe("Compiler Tests", () => {

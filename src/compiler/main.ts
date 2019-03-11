@@ -147,6 +147,14 @@ interface Variable extends Identifier {
     datatype: string
 }
 
+interface Literal extends Identifier {
+    value: string
+}
+
+interface ArrayI extends Identifier {
+    values: Array<Node>
+}
+
 interface Operator extends Node {
     operator: string
     left: Node | {}
@@ -169,6 +177,15 @@ class BaseDeclaration implements Declaration {
     }
 }
 
+class BaseIdentifier implements Identifier {
+    type = "Identifier"
+    identifier = ""
+
+    constructor(ident: string) {
+        this.identifier = ident
+    }
+}
+
 class BaseVariable implements Variable {
     type = "Variable"
     identifier = ""
@@ -177,6 +194,26 @@ class BaseVariable implements Variable {
     constructor(ident: string, datatype: string) {
         this.identifier = ident
         this.datatype = datatype
+    }
+}
+
+class BaseLiteral implements Literal {
+    type = "Literal"
+    identifier = ""
+    value = ""
+
+    constructor(value: string) {
+        this.value = value
+    }
+}
+
+class BaseArray implements ArrayI {
+    type = "Array"
+    identifier = ""
+    values = []
+
+    pushValue(value: Node): void {
+        this.values.push(value)
     }
 }
 
@@ -201,7 +238,7 @@ class PipelineDeclaration extends BaseDeclaration {type = "PipelineDeclaration"}
 class PublicDeclaration extends BaseDeclaration {type = "PublicDeclaration"}
 class PrivateDeclaration extends BaseDeclaration {type = "PrivateDeclaration"}
 class LogicDeclaration extends BaseDeclaration {type = "LogicDeclaration"}
-class ExpressionDeclaration extends BaseDeclaration {types = "ExpressionDeclaration"}
+class ExpressionDeclaration extends BaseDeclaration {type = "ExpressionDeclaration"}
 
 /* 
 Parse tokenized string with decision tree
@@ -236,6 +273,7 @@ export class Parser {
         // Modules
         "component": 1,
         "global": 1,
+        "logic" : 1,
         // Modifiers
         "public": 1,
         "private": 1,
@@ -248,11 +286,11 @@ export class Parser {
 
     root: Object = {
         // Text Value level
-        "component": () => this.parseNamedBlock(ComponentDeclaration),
+        "component": () => this.parseNamedBlock(ComponentDeclaration, this.parse.bind(this)),
         "public": () => this.parseBlock(PublicDeclaration, this.parse.bind(this)),
         "private": () => this.parseBlock(PrivateDeclaration, this.parse.bind(this)),
-        "pipeline": () => this.parseBlock(PipelineDeclaration, this.pipelineParser.bind(this)),
-        "logic": () => this.parseNamedBlock(LogicDeclaration)
+        "pipeline": () => this.parseBlock(PipelineDeclaration, this.expressionsParser.bind(this)),
+        "logic": () => this.parseNamedBlock(LogicDeclaration, this.expressionsParser.bind(this))
     }
 
     rootNoRes: Object = {
@@ -260,11 +298,38 @@ export class Parser {
     }
 
     operatorPrecedence: Object = {
-        "and": 2,
-        "=>":  1,
+        "and":  2,
+        "nand": 2,
+        "or":   2,
+        "nor":  2,
+        "xor":  2,
+        "xnor": 2,
+        "=>":   1,
     }
 
-    private infixParser(group: Array<string>): Node {
+    private literalParser(token: string): Node {
+        if (/[0-9]+/.test(token)) {
+            return new BaseLiteral(token)
+        }
+        if (/[a-zA-Z_]+/.test(token)) {
+            return new BaseIdentifier(token)
+        }
+        if (token == "[") {
+            const arr = new BaseArray()
+            this.next() // point at next value
+            while (this.current().value != "]") {
+                const token = this.current().value
+                arr.pushValue(this.literalParser(token))
+                this.next()
+                if (this.current().value == ",") this.next()
+            }
+            return arr
+        }
+        
+        return new BaseLiteral(token)
+    }
+
+    private infixParser(): Node {
         const isOp = (op) => this.operatorPrecedence.hasOwnProperty(op)
         const getPrec = (op) => this.operatorPrecedence[op]
         const shunter = () : Node => {
@@ -280,7 +345,9 @@ export class Parser {
 
             const evaluate = (token: string) => {
                 if (!isOp(token)) {
-                    valstack.push(token)
+                    valstack.push(
+                        this.literalParser(token)
+                    )
                 }
                 // if opstack is empty
                 else if (!opstack.length) {
@@ -297,9 +364,20 @@ export class Parser {
                 }
             }
 
-            for (let token of group) {
+            while (
+                this.current().value != "}"
+                && this.current().value != ","
+            ) {
+                const token = this.current().value
                 evaluate(token)
+                this.next()
             }
+
+            // only advance if pointing at comma
+
+            if (this.current().value != "}") this.next()
+
+            // pointing at next value
             
             // continue to process until opstack is empty
             while (opstack.length) {
@@ -312,36 +390,10 @@ export class Parser {
         return shunter()
     }
 
-    private pipelineParser(): Node {
-        // group each entry
-        let group = []
-        while (
-            this.current().value != "}"
-            && this.current().value != ","
-        ) {
-            group.push(this.current().value)
-            this.next()
-        }
-
-        // pointing at } or ,
-
-        this.next()
-
-        // pointing at next value
-
-        // if expression identifier
-        if (group.length == 1) {
-            return new ExpressionDeclaration(group.shift())
-        }
-        // binary infix expession
-        else if (group.length > 1) {
-            const exp = new ExpressionDeclaration()
-            exp.pushNode(this.infixParser(group))
-            return exp
-        }
-        else {
-            this.error()
-        }
+    private expressionsParser(): Node {
+        const exp = new ExpressionDeclaration()
+        exp.pushNode(this.infixParser())
+        return exp
     }
 
     private parseVariable(ident: string): BaseVariable {
@@ -356,7 +408,7 @@ export class Parser {
         return new BaseVariable(ident, type)
     }
 
-    private parseNamedBlock<T extends BaseDeclaration>(_type: { new(ident: string): T }) : T {
+    private parseNamedBlock<T extends BaseDeclaration>(_type: { new(ident: string): T }, parser: Function) : T {
         const blockName = this.next().value
 
         // pointing at component name
@@ -375,7 +427,7 @@ export class Parser {
 
         // recurse
         while (this.current().value != "}") {
-            component.pushNode(this.parse())
+            component.pushNode(parser())
         }
 
         // advance from brace
@@ -435,7 +487,6 @@ export class Parser {
     private parse(): Node {
         // should point to the beginning of an AST node
         const current = this.current().value
-
         // test if reserved keyword
         if (this.isReservedKeyword(current)) {
             return this.root[current].bind(this)()
