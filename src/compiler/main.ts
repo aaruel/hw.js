@@ -157,8 +157,8 @@ interface ArrayI extends Identifier {
 
 interface Operator extends Node {
     operator: string
-    left: Node | {}
-    right: Node | {}
+    left: Node
+    right: Node
 }
 
 // Base Classes
@@ -220,8 +220,8 @@ class BaseArray implements ArrayI {
 class BaseOperator implements Operator {
     type = "Operator"
     operator = ""
-    left = {}
-    right = {}
+    left = {type: ""}
+    right = {type: ""}
 
     constructor(operator: string, left: Node, right: Node) {
         this.operator = operator
@@ -256,6 +256,14 @@ ProgramDeclaration {
 */
 
 export class Parser {
+    private i: number = 0
+    private tokens: Array<Token> = []
+    private ast: ProgramDeclaration = new ProgramDeclaration()
+    private next = () => this.tokens[++this.i]
+    private current = () => this.tokens[this.i]
+    private isReservedKeyword = (value) => this.charTable.hasOwnProperty(value)
+    private operators: RegExp = /and|nand|or|nor|xor|xnor|=>/
+
     private charTable: Object = {
         // Blocks
         "{": 1,
@@ -461,14 +469,6 @@ export class Parser {
 
     private error(name: string = "error") { throw Error(name) }
 
-    private i: number = 0
-    private tokens: Array<Token> = []
-    private ast: ProgramDeclaration = new ProgramDeclaration()
-    private next = () => this.tokens[++this.i]
-    private current = () => this.tokens[this.i]
-    private isReservedKeyword = (value) => this.charTable.hasOwnProperty(value)
-    private operators: RegExp = /and|nand|or|nor|xor|xnor|=>/
-
     constructor(tokens: Array<Token>) {
         this.tokens = this.detectOperatorsXform(tokens)
         while (this.current()) {
@@ -503,5 +503,133 @@ export class Parser {
             if (this.operators.test(token.value)) token.type = "operator"
             return token
         })
+    }
+}
+
+/** MACHINE */
+
+// Engine interfaces
+class Runnable {
+    run(): void {}
+}
+
+// Types
+interface HW_Type {}
+
+enum HW_State {
+    HIGH,
+    LOW,
+    Z,
+}
+
+class HW_Wire implements HW_Type {
+    state: HW_State
+    // forward linked list
+    linksTo: HW_Type
+}
+
+interface VariableI {scope?: string, value: any, type: string}
+class VariableT implements VariableI {
+    // accepted types
+    publicTypes: Object = {
+        "input": 1,
+        "output": 1
+    }
+    privateTypes: Object = {
+        "wire": () => new HW_Wire()
+    }
+    constructor(public value: any, public type: string) {}
+}
+class PrivateT extends VariableT {scope = "private"}
+class PublicT extends VariableT {scope = "public"}
+
+class Expression implements Runnable {
+    // setup a message system between component and expression 
+    variables: Map<string, VariableT>
+    internalVarIndex: number = 0
+
+    constructor(private component: Component, private node: ExpressionDeclaration) {
+    }
+
+    private infixHandler() {
+
+    }
+
+    private getInternalVariable(value: any, type: string): VariableT {
+        const name = `__#${this.internalVarIndex++}`
+        const v = new PrivateT(value, type)
+        this.variables.set(name, v)
+        return v
+    }
+
+    private handleOperator(node: BaseOperator) {
+        if (node.left.type == "Operator") {
+            this.parse(node.left)
+        }
+    }
+
+    private handleIdentifier(node: BaseIdentifier) {
+
+    }
+
+    // typ3scr1pt ju5t d035n't cut 1t 5omet1m35
+    // `any` stemming from lack of any real method overloading
+    private parse(node: any) {
+        if (node.type == "Operator") this.handleOperator(node)
+        if (node.type == "Identifier") this.handleIdentifier(node)
+    }
+
+    run(): void {
+        this.node.body.forEach(this.parse)
+    }
+}
+
+class Component {
+    variables: Map<string, VariableT>
+    expressions: Array<Expression>
+
+    constructor(private node: ComponentDeclaration) {
+        this.node.body.forEach(this.parse)
+    }
+
+    private variableParse<T extends VariableT>(node: PublicDeclaration, _type: { new(value: any, type: string): T }) {
+        const ident = node.identifier
+        this.variables.set(ident, new _type(ident, node.type))
+    }
+
+    private expressionParse(node: ExpressionDeclaration) {
+        this.expressions.push(new Expression(this, node))
+    }
+
+    private parse(node: BaseDeclaration) {
+        if (node.type == "PublicDeclaration") {
+            const publicParse = (n) => this.variableParse(n, PublicT)
+            node.body.forEach(publicParse)
+        }
+        if (node.type == "PrivateDeclaration") {
+            const privateParse = (n) => this.variableParse(n, PrivateT)
+            node.body.forEach(privateParse)
+        }
+        if (node.type == "PipelineDeclaration") {
+            node.body.forEach(this.expressionParse)
+        }
+    }
+}
+
+class Engine {
+    components: Map<string, Component>
+
+    constructor(private ast: ProgramDeclaration) {
+        ast.body.forEach(this.parse)
+    }
+
+    private parse(node: BaseDeclaration) {
+        if (node.type == "ComponentDeclaration") {
+            this.components.set(node.identifier, new Component(node))
+        }
+        // entrypoint
+        if (node.type == "PipelineDeclaration") {
+
+        }
     }
 }
